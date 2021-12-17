@@ -1,0 +1,451 @@
+---
+title: "16s Analysis Methods"
+author: "Katie McCauley (kathryn.mccauley@ucsf.edu)"
+date: "Last Modified: December 2021 (v2.0)"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    theme: spacelab
+    highlight: tango
+---
+
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/data/Users/kmccauley/16S_Processing_Document/assets/')
+```
+
+# Basic Analyses of Microbiome Data in R
+
+To highlight several of the concepts discussed in this tutorial document, we will be using an abridged dataset from a previous lab member, Kei Fujimura's study [Neonatal gut microbiota associates with childhood multisensitized atopy and T cell differentiation](https://pubmed.ncbi.nlm.nih.gov/27618652/). The sample data and OTU table can be found in `/data/Users/dli2/DOC`. Please note that the OTU table has been processed through all of the applicable steps shown in the processing document (very important to do so prior to any analyses!).
+
+All analyses moving forward have been run on **Lynchserver2** for the development of this document. However, Wynton can also be used to analyze data. Katie highly encourages you to use one of these two servers, especially as datasets become large.
+
+### 0.1 Moving files from Wynton to Lynchserver2
+
+Use the scp command as described above, similar to what you needed to do with your mapping file. You will need to run from lynchserver2 and your command will look something like:
+
+```
+cd to where you want your data to go
+scp {yourusername}@dt2.wynton.ucsf.edu:/wynton/group/lynch/{location of your data} .
+```
+
+The dot/period means to use the directory that you are currently in.
+
+### 0.2 Using RStudioServer
+
+Katie has set up a nice interface for being able to run code in R, see plots as they're generated, and access some files all within the same space. In order to use it on a Mac:
+
+1. Go to Terminal and type: `ssh -N -f -L localhost:8001:localhost:8787 {yourusername}@lynchserver2.ucsf.edu`
+2. Replace {yourusername} with your actual username for Lynchserver2
+3. Go into your favorite web browser and type `localhost:8001`
+4. Enter your username and password (again)
+5. You should be taken to the web version of Rstudio and be able to access files as if you were on the server
+
+A note re: Windows machines, this works but use PowerShell instead. Discuss with Katie if you run into issues.
+
+### 1. Importing our data
+
+The process here will include how to generate a phyloseq object from scratch; if you already have a basic phyloseq object to start analyzing, you can jump to the next section that will have some basic cleanup suggestions before moving into true *analysis*. Anyway, in order to start compiling individual pieces of data into a phyloseq object, we first need to load our data into R. Here, we load our sample data file. We also create some new variables for our data which will be used for grouping later on.
+
+```{r}
+stool_data <- read.table("/data/Users/dli2/Doc/fujimura_sample_data.txt", header=T, check.names=F, comment="", sep="\t")
+## Typically, all four options at the end of read.table are included when reading in most tables and they are described here:
+### header=T -> Data already has a header/variable names included
+### check.names=F -> Sometimes R will reformat your variable names without your consent, and this keeps R from doing that
+### comment="" -> You'll recall that some mapping files require the # symbol in front of SampleID, and this encourages R to not see your variable names as a commented line
+### sep="\t" -> confirms that your data values are separated by a tab (which should be the case in almost all txt files). CSVs are comma-separated, but there's a whole read.csv function for those.
+
+#creating a month variable for each participant (ages are in days right now)
+stool_data$month <- round(stool_data$ageStool/30, 0)
+stool_data$month <- as.factor(stool_data$month)
+
+stool_data$month_group <- ifelse(stool_data$month==1, "A",
+                               ifelse(stool_data$month==2, "B",
+                                ifelse(stool_data$month==3, "C",
+                                  ifelse(stool_data$month==4, "D", "E")
+                                    )))
+```
+
+Next, we load in our OTU table. We also do a bit of cleaning to our data (any steps beyond reading in your OTU table are likely not necessary, but is done here for the example dataset in particular).
+
+```{r}
+otu_data <- read.delim("/data/Users/dli2/Doc/fujimura_rarefied_otutable.txt", check.names=F, sep="\t")
+#giving our otus an otu label, rather than just numbers.
+otu_data$`#OTUID` <- paste0("OTU_", otu_data$`#OTUID`)
+#removing OTUs that are reference genomes as we don't need those (they have "reference" in the name so this line is selecting all rows of the OTU table that don't have "reference" in them)
+otu_data <- otu_data[!grepl("Reference", otu_data$`#OTUID`), ]
+
+```
+
+Now, we will load Phyloseq, a useful package commonly used for microbial analyses.
+
+Note: if these packages are not installed yet, you can run the code as shown here to install them.
+
+```
+source('http://bioconductor.org/biocLite.R')
+biocLite('phyloseq')
+
+install.packages("ggplot2")
+```
+
+```{r, message=F, warning=F}
+#loading our installed packages in R.
+library(phyloseq)
+#for more plotting features later.
+library(ggplot2)
+```
+
+Next, we prepare our data to be merged into a Phyloseq object. 
+
+```{r, message=F, warning=F}
+#This is for phyloseq. phyloseq doesn't like when your OTU table has the taxonomy info attached so we're separating it for now.
+#also doing some other cleaning up to make a phyloseq object
+taxonomy_data <- otu_data[, c("#OTUID", "taxonomy")]
+rownames(taxonomy_data) <- taxonomy_data$`#OTUID`
+rownames(otu_data) <- otu_data$`#OTUID`
+rownames(stool_data) <- stool_data$`#SampleID`
+otu_data$`#OTUID` <- NULL
+otu_data$taxonomy <- NULL
+```
+
+
+This function is to make the taxonomy table look nice, and for easier use later on. Note that there is no output in this code chunk, this is simply saving our function.
+
+```{r}
+split.tax <- function(tax.dat) {
+  taxanames <- strsplit(as.character(tax.dat[,2]),"; ")
+  mat <- t(sapply(taxanames,
+                  function(x,m) c(x,rep(NA,m-length(x))),
+                  max(rapply(taxanames,length))))
+  
+  newnames <- gsub("_","",mat)
+  newnames <- as.matrix(newnames)
+  colnames(newnames) <- c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+  row.names(newnames) <- tax.dat[,1]
+  newnames[,6][newnames[,6] %in% c("") | is.na(newnames[,6])] <- newnames[,5][newnames[,6] %in% c("") | is.na(newnames[,6])]
+  newnames[,6][newnames[,6] %in% c("") | is.na(newnames[,6])] <- newnames[,4][newnames[,6] %in% c("") | is.na(newnames[,6])]
+  return(newnames)
+}
+```
+
+Now, we run the function on our taxonomy data to clean it up.
+
+```{r}
+#use the function on our taxonomy table
+taxonomy_data <- split.tax(taxonomy_data)
+taxonomy_data <- sub('.', '', taxonomy_data)
+taxonomy_data <- as.data.frame(taxonomy_data)
+```
+
+To view our new formatted taxonomy table:
+
+```{r}
+head(taxonomy_data)
+```
+
+We see that our classifications have been separated into their respective hierarchies for each OTU in our data.
+
+Finally, we read in our phylogenetic tree.
+
+```{r}
+phytree <- read_tree("rep_set_aligned_pfiltered_041614.tre")
+taxa_names(phytree) <- paste0("OTU_", taxa_names(phytree)) ## Needed for this particular dataset
+phytree <- ape::root(phytree, 1, resolve.root=TRUE) ## For most analyses, a rooted tree is required. This command roots the tree. If phylogenetic analyses appear "off", you may need to change the `1` value to another number.
+```
+
+Now, we make a Phyloseq object upon which we will conduct our preliminary analyses. 
+
+```{r, message=F}
+#making a phyloseq object. phyloseq takes a variety of datasets, but here we are giving it our sample data, OTU table, and taxonomy data.
+ngm_data <- phyloseq(sample_data(stool_data), otu_table(as.matrix(otu_data), taxa_are_rows = T), tax_table(as.matrix(taxonomy_data)), phy_tree(phytree))
+```
+
+To see the contents of our phyloseq object:
+```{r}
+ngm_data
+```
+
+As you can see, we have 130 samples, 858 taxa, and 6 variables in our sample data.
+
+
+#### Using the phyloseq object from the processing pipeline
+
+You can also import the phyloseq object using the `readRDS` function like so:
+
+```
+phy <- readRDS("phyloseq_noneg.rds") ## load
+saveRDS(phy, "saving_my_phyloseq.rds") ## save
+```
+
+You can save any object that lives in R as an RDS file, but not all RDS files you encounter will be phyloseq objects. Just a word of warning.
+
+There are a couple of items that are covered above that will also be helpful here. Specifically:
+
+##### Rooting the Tree
+
+A "rooted" tree is very helpful for Weighted and Unweighted UniFrac analyses. To do ths.
+
+##### Renaming Your Taxa
+
+When you get your phyloseq object from the DADA2 pipeline, your sequence variants will be the actual 253-ish bp (if you've sequenced the V4 region) sequence, which while nice to have, it makes some figures messy, taxa difficult to discriminate, and actually already exists in another component of the phyloseq object. To make this change, you can use the following line of code:
+
+```
+taxa_names(phy) <- paste0("SV_", 1:length(taxa_names(phy))) ## Paste, without separators, the prefix "SV_" to numbers ranged 1 through the length of the taxa names string from my phyloseq object
+```
+
+### 2. Alpha diversity
+
+To calculate alpha diversity for each of our samples, we use the following calculations:
+
+```{r}
+library(vegan)
+sample_data(ngm_data)$equitability <- diversity(t(otu_table(ngm_data)))/log(specnumber(t(otu_table(ngm_data)))) ## Pielou's Evenness
+sample_data(ngm_data)$chao1 <- t(estimateR(t(otu_table(ngm_data))))[,2] ## Chao1 richness
+sample_data(ngm_data)$PD_whole_tree <- picante::pd(t(otu_table(ngm_data)), phy_tree(ngm_data), include.root = TRUE)[,2] ## Faith's Phylogenetic Diversity
+```
+
+We can then relate alpha diversity to our sample data using linear models. We do not need linear mixed effects models here because we are examining one timepoint.
+
+```{r}
+summary(lm(chao1 ~ ageStool, data=data.frame(sample_data(ngm_data))))
+```
+
+This output tells us that there is a significant (P=0.022) relationship between richness and the age, in days, of the stool. Specifically, for every day older the child is, there is a 0.64 increase in richness.
+
+If we wished to plot this relationship, we could do so using ggplot2:
+
+```{r}
+library(ggplot2)
+ggplot(data.frame(sample_data(ngm_data)), aes(x=ageStool, y=chao1)) +
+  geom_point() +
+  geom_smooth(method="lm")
+```
+
+We can also examine categorical relationships in a similar manner:
+
+```{r}
+summary(lm(chao1 ~ month_group, data=data.frame(sample_data(ngm_data))))
+```
+
+Here, months were grouped into alphabetical categories, and each P-value represents the unit-change between Group A and each other group. Here, there is no significant difference between Group A and each of the other groups. We can also test if the groups are different from each other (one p-value) with an analysis of Variance (ANOVA) test as shown here:
+
+```{r}
+anova(lm(chao1 ~ month_group, data=data.frame(sample_data(ngm_data))))
+```
+
+A minimal plot of this relationship:
+
+```{r}
+ggplot(data.frame(sample_data(ngm_data)), aes(x=month_group, y=chao1, fill=month_group)) + 
+  geom_boxplot() +
+  geom_point(shape=21, size=3)
+```
+
+
+### 3. Beta diversity Relationships
+
+Next, we will take a look at differences in composition between samples. To do so, we will create an ordination of all samples in our Phyloseq object and plot them. We can generate Bray Curtis ("bray") and Canberra ("canberra") distance matrices. And assuming we have a phylogenetic tree in our phyloseq object, we can also calculate Weighted UniFrac ("wunifrac") and Unweighted UniFrac ("unifrac") distance matrices.
+
+```{r}
+age_pcoa <- ordinate(ngm_data, method="PCoA", distance="bray")
+plot_ordination(ngm_data, age_pcoa, type="samples", color="month")
+```
+
+From our plot, we do not see any immediate distinctions in composition between months. However, to test this statistically, we use the `adonis2` function from the R package `vegan`.
+
+If not installed:
+```
+install.packages("vegan")
+library(vegan)
+```
+
+To conduct a PERMANOVA test and determine if beta diversity significantly differs across our groups (here, months of age), we first create a distance matrix with our data:
+
+```{r}
+dm_age <- phyloseq::distance(ngm_data, method = "bray")
+```
+
+To statistically test if our variable is indeed significant:
+
+```{r}
+#for reproducibility purposes (set.seed needs to be run at the exact same time as the adonis function in order to get the exact same result)
+set.seed(123)
+vegan::adonis2(dm_age ~ month, data = data.frame(ngm_data@sam_data))
+```
+
+We look at the line starting with `month` as this is our variable in question. The R2 (R-squared) value indicates the % variation explained by our variable, and the p-value denotes whether or not this result is significant (in this case, our samples do not significantly differ in composition when grouping by months of age).
+
+If you plan to undertake multivariable analyses, you will need to include the `by="margins"` option in the adonis2 function. This will calculate R^2 and P-values that account for all other variables in the model (Type III Sum of Squares). The default `by="terms"` will calculate the R2 and P-values based only on accounting for variables above each variable (Type I Sum of Squares). In other words, if there are three variables in the model, the first variable's results will be the relationship without considering the other two variables, the second variable's results will only account for the previous variable, and the last variable will account for the other two variables.
+
+#### Repeated Measures
+
+If you have repeated measures in your data, you will be unable to use `adonis2` to determine if a variable is associated with microbiota composition. Instead, you will need to obtain the axis values and use linear mixed effects models. This study doesn't have repeated measures, but for the purpose of illustration, we will use this dataset and use simple linear models.
+
+```{r}
+#for reproducibility purposes
+set.seed(123)
+age_pcoa <- ordinate(ngm_data, method="PCoA", distance="bray")
+
+pcoa_data <- merge(ngm_data@sam_data, age_pcoa$vectors[,1:3], by=0)
+# You can see that the Axis values have been added to our sample data:
+head(pcoa_data)
+
+summary(lm(Axis.1 ~ ageStool, data=pcoa_data))
+summary(lm(Axis.2 ~ ageStool, data=pcoa_data))
+summary(lm(Axis.3 ~ ageStool, data=pcoa_data))
+```
+
+Here, we can see that the age (in days) of the stool relates to PC3 of the Bray Curtis distance matrix. The same analysis above, but using mixed effects models, would look like:
+
+```
+library(lmerTest)
+summary(lmer(Axis.1 ~ ageStool + (1|StudyID), data=pcoa_data)) ## Note that StudyID does not exist in the data
+```
+
+#### Lab Code Relating All Variables to a Distance Matrix
+
+A script is available to relate all sample data to your distance matrices. To use this script, you will need to save distance matrices to a file like below.
+
+```{r, eval=FALSE}
+write.table(data.frame(as.matrix(phyloseq::distance(ngm_data, method = "bray"))), "bray_curtis_dm.txt", sep="\t")
+```
+
+The script can be found here: `/data/Users/kmccauley/LabCode/BetaDiversity/Adonis_All_Variables_20Jan19.R`.
+
+To use it, scroll to the bottom and fill in the needed information (distance matrix, sample information, output file, etc). Additional information about how to use this script is provided at the top of the code and in the README file (`/data/Users/kmccauley/LabCode/README`). Once the function is filled out, you can run the script using: `Rscript Adonis_All_Variables_20Jan19.R`.
+
+**THE FIRST TIME YOU RUN THIS SCRIPT IT WILL BREAK**. This is because it prints out a file called Variable_Table.txt. View this file and ensure that R is reading your script as intended, and if you need to make any modifications, do so. This can include removing any variables that you would prefer not to analyze (ie, SampleID). Then, when you re-run the Rscript command, it will list out every variable it is analyzing, confirming the variable type (ie, factor, numeric, etc) as it analyzes them. This script will also print out preliminary Principal Coordinate Analysis (PCoA) plots for all variables.
+
+This script will also identify where you have repeated measures (hence why it asks for Sample ID as well as Study/Participant ID) and if found, will include analysis of Axis 1 and Axis 2 using linear mixed-effects models.
+
+### 4. Differential Taxon (SV) Abundance Analysis
+
+We can identify taxa that differentiate between groups using either the "Many-Model" approach or DESeq2. Both use count-based methods, but take different approaches.
+
+#### A. Many Model Script
+
+This method analyzes each OTU/SV using an assortment of several count-based models including: Poissson, Negative Binomial and Zero-Inflated Negative Binomial models. The fit of each of these models is compared, and the model that fits the data best is considered the "winning" model from which the estimate and the p-value are derived. This allows the data to determine which model fits the data best. As written, this script can analyze data with repeated measures, but currently needs rarefied data to make appropriate conclusions.
+
+The script for this analysis can be found in: `/data/Users/kmccauley/LabCode/SigTaxa/ManyModelScript.R`. This script has been developed to take either an OTU table and data file, or a phyloseq object, so 
+
+Katie is working on a follow-up script to this analysis, and more details will be provided when it is closer to being ready.
+
+#### B. DESeq2 Approach
+
+An alternate method is DESeq2. This method uses a modified Negative Binomial model on non-rarefied data to identify taxa differentially-abundant between groups. It's preferred input is non-rarefied, non-transformed data, as it implements the Variance Stabilized Transformation as described above. Katie has tried DESeq with both rarefied and non-rarefied data, and has discussed it with other statisticians. Results with rarefied/non-rarefied data were similar, and the statisticians said rarefied data should not impact model-fit based on the statistical methods being implemented. You can also use DESeq for continuous variables. **However, DESeq cannot be used for data with repeated measures.**
+
+Wrapper functions have been developed by Katie to make using DESeq2 easier.
+
+```{r, cache=TRUE, message=FALSE}
+## Load in the wrapper functions
+library(DESeq2)
+source("/data/Users/kmccauley/LabCode/SigTaxa/DESeqFunctions.R")
+
+## Subsetting to the two groups I want to analyze:
+ngm_data_grpAB <- subset_samples(ngm_data, month_group %in% c("A","B"))
+
+## Removing low-prevalence taxa:
+ngm_data_grpAB_f <- filter_taxa(ngm_data_grpAB, function(x) sum(x > 0) > (0.2*length(x)), TRUE)
+dds <- phyloseq_to_deseq2(ngm_data_grpAB_f, ~month_group)
+dds2 <- DESeq(dds, fitType="local", sfType="poscounts")
+## Two wrapper functions to print out the results of DESeq, as well as generate a volcano plot.
+print_res(dds2, ngm_data_grpAB_f, alpha=0.01, var="month_group",ref="A",cont="B", sig.only=TRUE)
+plot_res(dds2, ngm_data_grpAB_f, alpha=0.01, var="month_group",ref="A",cont="B")
+```
+
+These plots may not be perfect for your needs, but will help provide a brief overview of the most-important taxa.
+
+### 5. Relative abundance plots
+
+Now, we may want to look at how our taxa are distributed across our samples. 
+
+```{r}
+plot_bar(ngm_data)
+```
+
+At first glance, this is not entirely informative. We can instead plot by a taxonomic classification, or by treatment group. First, we will group all of our taxa into Family labels.
+
+Note that `taxrank` will take any classification present in your taxonomy, but with higher classifications comes less resolution of your data.
+
+```{r}
+ngm_abundance <- tax_glom(ngm_data, taxrank = "Family")
+```
+
+Next, we will group our samples by a variable of interest. Here, we combine our microbiome profiles according to age in months, which could also be considered a microbiota group/community state type. We also want our counts in our table to be relative counts, rather than absolute counts, so we will take care of that too.
+
+```{r, message=F, warning=F}
+ngm_abundance <- merge_samples(ngm_abundance, "month_group")
+
+#every count is now transformed into a proportion
+ngm_abundance <- transform_sample_counts(ngm_abundance, function(x) x / sum(x))
+```
+
+Now, if we create our abundance plot, grouping by month and coloring by Family classification, we get a more informative result.
+
+```{r}
+stacked_barplot <- plot_bar(ngm_abundance, x = "month", fill = "Family")
+
+stacked_barplot
+
+#cleaning up our plot a bit
+stacked_barplot <- stacked_barplot + 
+  geom_bar(aes(fill=Family), stat="identity", position="stack") + 
+  #changing the x-axis label
+  xlab("Age (months)") + 
+  #changing the y-axis label
+  ylab("Relative Abundance (%)") + 
+  #changing our y axis to a percentage, rather than a decimal scale
+  scale_y_continuous(labels = scales::percent) + 
+  #italicizing our Family labels, and rotating x-axis labels to be properly oriented
+  theme(legend.text = element_text(face="italic"), axis.text.x = element_text(angle=0,hjust=0.5))
+
+#view our new and improved plot
+stacked_barplot
+```
+
+Now let's say that you want to only visualize the top 10 families in your data. In order to do this, I loosely follow some ideas in [this](https://github.com/joey711/phyloseq/issues/1197) page, depending on my needs.
+
+```{r}
+ngm_abundance10 <- ngm_abundance
+families <- names(sort(taxa_sums(ngm_abundance10), decreasing = T)[1:10]) ## Get top 10 families
+tax_table(ngm_abundance10)[,"Family"][!rownames(tax_table(ngm_abundance10)) %in% families] <- "Other" ## When the family is NOT (see: !) part of the top 10 families, call it "Other"
+plot_bar(ngm_abundance10, fill="Family")
+
+## If you don't like the order of things (especially with "Other" in the middle of Family names), you'll need to use regular ggplot, which translates nicely with a phyloseq "melting" function (making your dataset into a "long" dataset) for more customizability:
+ps <- psmelt(ngm_abundance10)
+ps$Family2 <- factor(ps$Family, levels=c(levels(ps$Family)[!levels(ps$Family) %in% "Other"], "Other")) #relevels "Other" so it's at the end. The logic is a little complicated, so feel free to reach out if you have questions. But basically(ish), it would be dictated as "get the levels of the Family variable when those levels *aren't* Other, then ADD Other as a category at the end, and use this order to reorder our family variable into a new variable called Family2".
+
+table(ps$Family, ps$Family2) ## As a sanity check, you can do something like this to confirm that your Bifidobacterium is still called Bifidobacterium with the reordered variable.
+
+## Since we're here, I'll also show how to set up a custom color palette
+library(RColorBrewer)
+## Get 10 colors, plus grey for "Other"
+custom_colors <- c(brewer.pal(10, "Set3"), "darkgrey") ## To see all default color palettes and how many colors they have, use `display.brewer.all()` in the console.
+names(custom_colors) <- levels(ps$Family2) ## Assign the levels of our Family varible to the names of our vector of colors
+
+#Starts with your typical ggplot setup
+ggplot(ps, aes(x=month,y=Abundance, fill=Family2)) +
+  # Sets up the common pieces of the bar plot
+  geom_bar(stat="identity", position="stack", color="black") +
+  # Asks the plot to use our color scheme, and changes the name from Family2 to Family
+  scale_fill_manual("Family", values=custom_colors)
+```
+Now we can quickly see a summary of the profiles associated with different months
+
+# Further reading and resources
+
+[DADA2 Tutorial](https://benjjneb.github.io/dada2/tutorial.html)
+
+[A 16s analysis pipeline tutorial written by Jordan Bisanz](https://jbisanz.github.io/BMS270_BMI219/)
+
+[Phyloseq Website](http://joey711.github.io/phyloseq/)
+
+[Some fun uses of phyloseq, which might give you some ideas too!](http://joey711.github.io/phyloseq-demo/Restroom-Biogeography)
+
+# Tips and Tricks for R
+
+While I encourage you to continue to read the documentation and demos provided above, explore scripts others have written, and honestly just Googling what you're looking to do (ie, you can get pretty far with `phyloseq filter taxa`), there are some tips and tricks that you might need in your data analysis journey and I will go through them here them here.
+
+# Acknowlegements
+
+Katie would like to give many thanks to Danny Li who helped develop the initial version of the analysis pipeline, as well as the several members of the Lynch Lab and BCMM who provided invaluable constructive feedback along the way.
