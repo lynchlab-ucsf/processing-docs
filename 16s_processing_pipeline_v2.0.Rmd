@@ -3,15 +3,15 @@ title: "16s Processing Methods"
 author: "Katie McCauley (kathryn.mccauley@ucsf.edu)"
 date: "Last Modified: December 2021 (v2.0)"
 output:
-  html_document:
-    toc: true
+  html_document: 
+    toc: yes
     toc_depth: 4
-    theme: spacelab
-    highlight: tango
+    theme: lumen
+    highlight: zenburn
 ---
 
 ```{r, setup, include=FALSE}
-knitr::opts_knit$set(root.dir = '/data/Users/kmccauley/16S_Processing_Document/assets/')
+knitr::opts_knit$set(root.dir = 'assets/')
 ```
 
 # From Sequencer to ASV Table
@@ -63,11 +63,11 @@ There are several options available once you have BaseSpace installed. Review th
 
 You will now need to upload the mapping file using the scp command (From your computer: `scp /my/mapping/file {username}@dt2.wynton.ucsf.edu:/wynton/group/lynch/NextSeq_Processed/mapping_files/`). This will then set you up perfectly for processing the data using the developed script.
 
-## IMPORTANT RULES ABOUT MAPPING FILES
+## Required Rules for QIIME-based Mapping Files
 
 Mapping files need to be in a *very* specific format for the software we use to be able to read them in correctly. You can find all of the details [here](http://qiime.org/documentation/file_formats.html) or [here](https://gls9000.gitbooks.io/qiime-tutorial-for-illumina-paired-end-sequences/content/1_preparing_the_data/14_preparing_a_mapping_file.html). The long-and-short of it is that your mapping file may not pass QC for a number of reasons (one of the main reasons the pipeline will break within the first 10 minutes). The Rules are:
 
-1. The file should be named with the same date as the run (so `Nextseq_YYMMDD_mapping.txt` matching `YYMMDD_Nextseq500_...`). PLEASE DO THIS. It equates a run ID with a mapping file. Three years down the road, we won't care that it took two days to make the mapping file, we just want to know what run it's for.
+1. The file should be named with the same date as the run (so `Nextseq_YYMMDD_mapping.txt` matching `YYMMDD_Nextseq500_...`). PLEASE DO THIS. It matches a run to mapping file. Three years down the road, we won't care that you made your mapping file two days after you started the run, we just want to know what run it's for.
 
 2. Should be a tab-delimited file (txt)
 
@@ -87,7 +87,7 @@ Mapping files need to be in a *very* specific format for the software we use to 
 
 Katie is working with Claire to initiate some cross-talk between AirTable and Wynton. This is in process. For now, once you have a mapping file that works for a run, it can stay in the mapping file directory.
 
-An example of an older mapping file that works with the script, with sample names changed to generic. Clearly you want to make sure that the sample names match up with the data you're about to analyze.
+An example of an older mapping file that works with the script, with sample names changed to generic. Clearly you want to make sure that the sample names match up with the data you're about to analyze. This dummy file can be downloaded from the [Lynch Lab Pipeline website](https://lynchlab-ucsf.github.io).
 
 ```{r, echo=FALSE, results='asis', message=FALSE}
 library(knitr)
@@ -141,13 +141,58 @@ The -M option will send you an e-mail when the process finishes. `scripts/comple
 
 The file that you will use for subsequent analysis is `phyloseq_noneg.rds`.
 
+### Steps in the Script
+
+#### bcl2fastq
+
+Illumina's proprietary hyper-compressed files are called BCL (or base call) files. They can be easily transformed into usable fastq (Q because the quality information is included) files using this command. We're not providing a mapping file, so all obtained reads are placed into "Undetermined" files, which means that the script wasn't able to associate a barcode with a sample name. This is fine and expected. You will get separate files for R1 and R2 (read 1 and read 2 / forward and reverse), and the script also prints a file with the associated barcodes.
+
+#### Undetermined FASTQC
+
+Next, we perform FASTQC on the large undetermined files, which means that we are getting an overall quality profile of the reads. This gives us an additional sense if anything went awry with the run.
+
+#### Split Libraries
+
+"Splitting libraries" is essentially the practice of assigning a sample name to a read, and this is done with your well-formatted mapping file through QIIME1. It matches the barcode from the FASTQ file of barcodes to the list of barcodes in your mapping file and creates a new "pool" of sequences that have been assigned to a sample.
+
+#### Poly-G Filter
+
+The NextSeq in particular is on a two-color system. That means that by using just red and green colors, it can relay information for all four nucleotides. How, you ask? Through permutation! In other words, only green and only red are two nucleotides, but you get the other two by doing both and neither, respectively! How cool!!! Except.... Gs are created when you get neither light, and sometimes you can get neither light for reasons beyond a G nucleotide, creating long stretches of Gs in your sequence data. This makes DADA2 unhappy, so I am using bbduk to filter out these "poly G" reads using an entropy (or sequence similarity score) of 0.2.
+
+#### Make Sample-Specific FASTQs
+
+Pretty straight-forward. Just makes one fastq file for each of the forward and reverse reads for each sample, which is the input to DADA2's algorithm.
+
 # Pipeline #2 (Illumina Sample Sheet/Version 2)
 
-Katie, in collaboration with BCMM, is testing out a new pipeline that would use the Illumina Sample Sheet instead of 
+We are also working on developing a pipeline that will allow us to utilize the Illumina-formatted Sample Sheet. The components in this pipeline are essentially the same as noted above, except that we're using Illumina's bcl2fastq to perform the split libraries step. QIIME is being considered for phase-out because of the move to QIIME2, and the prevailing belief among reviewers that using anything related to QIIME1 is now out-dated and problematic. (/rant)
 
-# Post-Processing Steps Completed Above
+## Rules for the Illumina Sample Sheet
 
-These steps provide an extra layer of processing and filtering for your analyses and were completed automatically as part of the script above.
+The rules associated with the Illumina Sample Sheet are annoyingly different, but relatively simple compared to the QIIME sample sheet -- this list will increase in length as additional rules need to be followed. Specifically:
+
+1. Sample names can only contain '-' and '_' as non-alphanumeric characters. Which means no periods, slashes, etc, etc.
+
+2. The '[Data]' row should be the 18th row on the sample sheet, followed immediately by the table. Katie is working on a possible script to make this less of a point, but it's not quite ready yet. Reach out to Katie when you have difficulty with this point.
+
+3. Naming convention -- despite either (I haven't decided yet) uploading the sample sheet directly to Illumina OR providing it in the run's directory, I do eventually want to build a database of mapping files that can be accessed from the server, OR finding some way to take the mapping file and upload it to AirTable as part of the pipeline (you can theoretically interact with AirTable using a CLI, and I'm interested in exploiting this...). *ANYWAY, please adhere to our previous rules about file naming conventions, using something like: `NextSeq_YYMMDD_mapping.csv` (noting the CSV format this time, and keeping YYMMDD matching the run's version).*
+
+## Using the new script
+
+You will now need to upload the sample sheet using the scp command (From your computer: `scp /my/sample/sheet.csv {username}@dt2.wynton.ucsf.edu:/wynton/group/lynch/NextSeq_Processed/mapping_files/`). This will then set you up perfectly for processing the data using the developed script.
+
+Next, log in to Wynton, and *copy* the uploaded mapping file from the mapping files directory into the directory specific to your newly-uploaded run. `cp /wynton/group/lynch/NextSeq_Processed/mapping_files/NextSeq_YYMMDD_mapping.csv /wynton/group/lynch/NextSeq_data/{my run ID}`.
+
+Finally, you can initiate the script by running: 
+
+```
+cd /wynton/group/lynch/NextSeq_Processed/
+qsub scripts/complete_16s_pipeline_v2.sh 190826_NS500170_0076_AH772CBGXC Nextseq_190826_mapping.csv
+```
+
+# Post-Processing Steps
+
+Low-prevalence filtering and negative control signal filtering are both part of our "usual" processing and filtering methods for most datasets and are completed automatically as part of the script above. Multiply-rarefying, however, is a process that requires a few additional steps to identify the optimal depth, so it needs to be done manually.
 
 ### 1. Low-prevalence filtering
 
@@ -161,7 +206,7 @@ The script then returns a NTC-filtered phyloseq object. Also output by the scrip
 
 ![Image](assets/Combined_Cleaning_Figure.png)
 
-We can tell from this figure that taxa like Pseudomonas and Delftia were removed, and while some taxa also present in negative controls remain, they are very likely to be biologically meaningful. Further examination of this data (not shown) found that remaining taxa had a very low total read count within the negative controls. Hence, the lack of movement of those taxa.
+We can tell from this figure that taxa like **Pseudomonas** and **Delftia** were removed, and while some taxa also present in negative controls remain, they are very likely to be biologically meaningful. Further examination of this data (not shown) found that remaining taxa had a very low total read count within the negative controls. Hence, the lack of movement of those taxa.
 
 # Normalizing for Differences in Read Depth
 
@@ -171,7 +216,7 @@ Considerations for your own dataset should be driven by the questions you wish t
 
 ### A. Rarefying
 
-Rarefying means to subsample each sample to an even read depth. We use a method for representative rarefaction in which we subsample each sample 100 times and choose the randomized sample at the center of a distance matrix. However, before we can carry out this process, we need to determine the optimal depth. This depth is that at which there is no additional diversity to gain and you retain an optimal number of samples (samples with a read depth lower than the rarefying depth are removed).
+Rarefying means to sub-sample each sample to an even read depth. We use a method for representative rarefaction in which we subsample each sample 100 times and choose the randomized sample at the center of a distance matrix. However, before we can carry out this process, we need to determine the optimal depth. This depth is that at which there is no additional diversity to gain and you retain an optimal number of samples (samples with a read depth lower than the rarefying depth are removed).
 
 I have built a script to carry out this process. In order to use it, you can run:
 
@@ -195,9 +240,19 @@ Rscript /wynton/group/lynch/kmccauley/dada2_files/Multiply_Rarefy_phy.R phyloseq
 
 The first object is the name/location of the script. `phyloseq_noneg.rds` indicates the name of the input phyloseq object; `50000` is the planned read depth; `phyloseq_mrare.rds` is the name of the output object. If you'd rather not specify an output name, one will be chosen for you.
 
+Let's say you're curious to know if the community composition of a dataset rarefied down to 50,000 reads and one that is rarefied at 70,000 reads. You can rarefy at both depths and then use a procrustes test to determine if their structure is significantly different. To do this, you can run something like the following:
+
+```
+Rscript /wynton/group/lynch/kmccauley/dada2_files/Multiply_Rarefy_phy.R phyloseq_noneg.rds 50000 phyloseq_mrare_50k.rds
+Rscript /wynton/group/lynch/kmccauley/dada2_files/Multiply_Rarefy_phy.R phyloseq_noneg.rds 70000 phyloseq_mrare_70k.rds
+Rscript /wynton/group/lynch/kmccauley/dada2_files/procrustes.R phyloseq_mrare_50k.rds phyloseq_mrare_70k.rds
+```
+
+The fun thing about the output is that if there is a significant P-value, it means that there is not a significant difference between the two datasets. It's strange, I know.
+
 ### B. Variance Stabilized Tranformations
 
-We can also use the variance stabilized transformation, which can easily be applied before downstream analyses. Despite allowing for small read depths, you'll still want to consider removing samples with less than 1000 reads since those profiles may not be as robust. However, if you are working with ultra-low-burden samples you may not be able to do that either. As we start getting into some of these circumstances, a chat with Katie or Sue may be helpful in determining how best to move forward given your study.
+We can also use the variance stabilized transformation, which can be applied before downstream analyses. Despite allowing for small read depths, you'll still want to consider removing samples with less than 1000 reads since those profiles may not be as robust. However, if you are working with ultra-low-burden samples you may not be able to do that either. As we start getting into some of these circumstances, a chat with Katie or Sue may be helpful in determining how best to move forward given your study.
 
 ```
 library(DESeq2)
