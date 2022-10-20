@@ -35,7 +35,11 @@ AirTable will perform the linkages necessary across all data modalities generate
 
 Upon receipt of metabolomics data from Metabolon, the raw Excel sheet, sample submission forms and metadata files provided both to and by the company is placed in AirTable in the Results worksheet within the base specific to the project for which the data was generated. On the Results worksheet, include the raw metabolomics data in the Attachments column, and fill in all fields.
 
+![](Results_pic.png)
+
 Samples undergoing metabolomics analysis must have an entry in the Progress Tracker, which should be linked via the Processing ID. The entry in the progress tracker is necessary to ensure that a Benchling link to any bench-based preparation of these samples before shipment to Metabolon is documented. This should include any relevant notations that would be necessary to write precise, reproducible methods for any future paper using these data.
+
+![](Attachments_pic.png)
 
 Once raw (which in this case is really intermediate) data is uploaded to AirTable as described, downstream files may be analyzed from preferred analysis locations[^1].
 
