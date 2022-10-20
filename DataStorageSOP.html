@@ -11,7 +11,7 @@
 
 <meta name="author" content="Author: Katie McCauley" />
 
-<meta name="date" content="2022-10-19" />
+<meta name="date" content="2022-10-20" />
 
 <title>Centralized Data SOP</title>
 
@@ -361,7 +361,7 @@ pre code {
 
 <h1 class="title toc-ignore">Centralized Data SOP</h1>
 <h4 class="author">Author: Katie McCauley</h4>
-<h4 class="date">2022-10-19</h4>
+<h4 class="date">2022-10-20</h4>
 
 </div>
 
@@ -426,12 +426,12 @@ account can be found in the Lynch Lab Etiquette document.</p>
 <h1>Data Storage Requirements</h1>
 <div id="metabolomics" class="section level2">
 <h2>Metabolomics</h2>
-<p>Upon receipt of metabolomics data from Metabolon, the raw Excel sheet
-and accompanying documentation provided by the company is placed in
-AirTable in the Results worksheet within the base specific to the
-project for which the data was generated. On the Results worksheet,
-include the raw metabolomics data in the Attachments column, and fill in
-all fields.</p>
+<p>Upon receipt of metabolomics data from Metabolon, the raw Excel
+sheet, sample submission forms and metadata files provided both to and
+by the company is placed in AirTable in the Results worksheet within the
+base specific to the project for which the data was generated. On the
+Results worksheet, include the raw metabolomics data in the Attachments
+column, and fill in all fields.</p>
 <p>Samples undergoing metabolomics analysis must have an entry in the
 Progress Tracker, which should be linked via the Processing ID. The
 entry in the progress tracker is necessary to ensure that a Benchling
@@ -455,7 +455,7 @@ document will be updated when additional information is available.</p>
 sequencing from QB3 or the UCSF Center for Advanced Technologies (CAT),
 download the data to Wynton. Wynton provides (a) great download speeds,
 (b) lots of space, and, coming soon, (c) backups. In order to download
-data from the CAT, carefully review the e-mail received, whcih includes
+data from the CAT, carefully review the e-mail received, which includes
 the location of data within the CAT servers in the subject line, as well
 as passwords, etc.</p>
 <p>Steps for download are:</p>
@@ -554,13 +554,14 @@ in this directory.</p>
 <p>Participant and sample metadata should ideally be retained in a
 “always accessible all of the time” location that is also password
 protected with two-factor authentication (ie, Wynton/Lynchserver2).
-Though our data is often de-identified (though see <a href="https://it.ucsf.edu/standard-guideline/ucsf-policy-650-16-addendum-f-ucsf-data-classification-standard#De-ID%20Data">this</a>
+Though our data is often “de-identified” (see <a href="https://it.ucsf.edu/standard-guideline/ucsf-policy-650-16-addendum-f-ucsf-data-classification-standard#De-ID%20Data">this</a>
 for all requirements for de-identification), it still falls within “P3”
 or “Sensitive” protection levels. See <a href="https://secureresearch.ucsf.edu/data-classification">this</a> and
 <a href="https://it.ucsf.edu/standard-guideline/ucsf-policy-650-16-addendum-f-ucsf-data-classification-standard">this</a>
 site from UCSF to learn more about data security classifications. All P3
 and P4 data, per UCSF policy, needs to be securely maintained. Never
-send patient data over e-mail.</p>
+send patient data over e-mail; Box can sometimes be a secure
+alternative.</p>
 <p>Within your group-user directory (ie,
 <code>/wynton/group/lynch/kmccauley</code>), create a directory for your
 project being as descriptive as possible. Within the project-specific
@@ -572,7 +573,7 @@ for the project.</p>
 <h2>Auxillary Bench-generated Data</h2>
 <p>The scope of this is essentially any data created on the bench – DNA
 concentrations, TEER values, Cell line work, etc.</p>
-<p>The automatic location for bench-generated ata should be Benchling.
+<p>The automatic location for bench-generated data should be Benchling.
 If a folder does not exist for your project, create one and use one of
 the templates designed by Claire (if not applicable, create your own).
 Once generated data has been finalized in Benchling, download your
@@ -589,14 +590,14 @@ a Lynch Lab member) all of the time. I am not sure yet what this means
 for analysis performed on laptops. As much as possible, use Wynton
 (specifically the /wynton/group/lynch space within a personal directory)
 to perform analysis to ensure accessibility of code and downstream
-files. Alternatively, saving to Box Drive or utilizing GitHub could
-assist in all relevant files and code upon a lab member’s departure.
-This may change in the future.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+files. Wynton now has an easy-to-use rstudio link, too! Alternatively,
+saving to Box Drive or utilizing GitHub could assist in transferring all
+relevant files and code upon a lab member’s departure.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
 <li id="fn2"><p>There are likely to be times when your data does not fit
 this usecase (in the case of RNAseq, you may be performing it on cell
 lines and not a human study). Do the best you can and rely on the space
-available in AirTable/Benchling to provide as much opportunity as
-possible to point a future person in the right direction. As metnioned
+available in AirTable/Benchling to provide as much information as
+possible to point a future person in the right direction. As mentioned
 in Background and Scope, this is really the ultimate goal.<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
 <li id="fn3"><p>See footnote 1.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
 </ol>
